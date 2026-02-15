@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- ページタイトル：必要に応じて変更してください -->
+  <title>SHIROIRI Goma</title>
+  <style>
+    /* =====================
+       フォント設定
+       fonts/ フォルダにファイルを置いてください
+    ===================== */
+    @font-face {
+      font-family: 'Commit Mono';
+      src: url('./fonts/CommitMono-VariableFont.woff2') format('woff2');
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    /* =====================
+       カラー変数
+    ===================== */
+    :root {
+      --bg:         #aaaaaa;
+      --text:       #111111;
+      --muted:      #555555;
+      --hover-bg:   #111111;
+      --hover-text: #aaaaaa;
+      --comment:    #555555;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      color: var(--text);
+      font-family: 'Commit Mono', monospace;
+      min-height: 100vh;
+      position: relative;
+      background-color: var(--bg);
+    }
+
+    /* =====================
+       BGオーバーレイ
+       - 展開：0.5s で広がる
+       - 消去：40ms 猶予 → 1.6s でフェードアウト
+       - 境界線：1px solid black（box-shadow で実現）
+    ===================== */
+    #bg-overlay {
+      position: fixed;
+      pointer-events: none;
+      z-index: 0;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      left: 50%;
+      top: 50%;
+      opacity: 0;
+      /* 境界線はJSで制御（展開時のみ表示） */
+      transition:
+        width   0.5s cubic-bezier(0.4, 0, 0.2, 1),
+        height  0.5s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.8s ease;
+    }
+
+    #bg-overlay.active {
+      width: 300vmax;
+      height: 300vmax;
+      opacity: 1;
+      transition:
+        width   0.75s cubic-bezier(0.4, 0, 0.2, 1),
+        height  0.75s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.25s ease;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      padding: 40px;
+    }
+
+    /* =====================
+       プロフィールセクション
+    ===================== */
+    .profile {
+      margin-bottom: 32px;
+      opacity: 0;
+      animation: fadeUp 0.5s ease forwards;
+    }
+
+    .profile .name {
+      font-size: 25.6px;
+      line-height: 24px;
+      font-weight: 400;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .profile .title {
+      font-size: 12.8px;
+      line-height: 20px;
+      font-weight: 400;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      margin-bottom: 32px;
+    }
+
+    .profile .bio {
+      font-size: 16px;
+      line-height: 24px;
+      font-weight: 400;
+      color: var(--text);
+      letter-spacing: 0.02em;
+      margin-bottom: 24px;
+    }
+
+    /* =====================
+       プロフィール詳細（dl/dt/dd）
+       - 20px インデント
+       - 初期：頭文字のみ（コロンなし）、dd は左に詰まった位置
+       - ホバー：ラベルが展開し dd が右にスライド
+       - 各行の dd 先頭は揃える（初期位置は同じ margin-left を持つ）
+       実装方針：
+         dl-row は flex。dt は overflow:hidden で文字を clip。
+         dd は margin-left で初期位置を揃え、
+         ホバー時は margin-left を増やして右にスライド。
+    ===================== */
+    .profile dl {
+      font-size: 12.8px;
+      line-height: 20px;
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dl-row {
+      display: flex;
+      align-items: baseline;
+    }
+
+    /* dt：初期幅を2chに広げてletter-spacingによる文字欠けを防ぐ */
+    .profile dt {
+      color: var(--muted);
+      white-space: nowrap;
+      cursor: default;
+      display: flex;
+      align-items: baseline;
+      flex-shrink: 0;
+      overflow: hidden;
+      max-width: 2ch;
+      /* 閉じる：1.2s 待ってから戻る */
+      transition: max-width 0.35s ease 1.2s;
+    }
+
+    /* JSで付与する展開クラス */
+    .dl-row.expanded dt {
+      max-width: 12ch;
+      /* 開く：即座に */
+      transition: max-width 0.35s ease 0s;
+    }
+
+    /* 頭文字：常に表示 */
+    .dt-initial {
+      flex-shrink: 0;
+      letter-spacing: 0.05em;
+    }
+
+    /* 残りの文字 */
+    .dt-rest {
+      flex-shrink: 0;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      opacity: 0;
+      /* 閉じる：1.2s 待ってからフェードアウト */
+      transition: opacity 0.25s ease 1.2s;
+    }
+
+    /* コロン */
+    .dt-colon {
+      flex-shrink: 0;
+      opacity: 0;
+      /* 閉じる：1.2s 待ってからフェードアウト */
+      transition: opacity 0.2s ease 1.2s;
+    }
+
+    .dl-row.expanded .dt-rest {
+      opacity: 1;
+      /* 開く：即座に */
+      transition: opacity 0.25s ease 0s;
+    }
+
+    .dl-row.expanded .dt-colon {
+      opacity: 1;
+      /* 開く：0.18s 遅延（展開後に出現） */
+      transition: opacity 0.2s ease 0.18s;
+    }
+
+    /* dd */
+    .profile dd {
+      color: var(--text);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      margin-left: 10px;
+      /* 閉じる：1.2s 待ってから戻る */
+      transition: margin-left 0.35s ease 1.2s;
+    }
+
+    /* =====================
+       リンクセクション
+       通常: 14.222px
+       ホバー中のリンク: 18.286px
+       ホバー中でない他のリンク: 12.8px
+    ===================== */
+    .links {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .links li {
+      opacity: 0;
+      animation: fadeUp 0.4s ease forwards;
+    }
+
+    .links li:nth-child(1) { animation-delay: 0.10s; }
+    .links li:nth-child(2) { animation-delay: 0.18s; }
+    .links li:nth-child(3) { animation-delay: 0.26s; }
+    .links li:nth-child(4) { animation-delay: 0.34s; }
+    .links li:nth-child(5) { animation-delay: 0.42s; }
+    .links li:nth-child(6) { animation-delay: 0.50s; }
+    .links li:nth-child(7) { animation-delay: 0.58s; }
+
+    .link-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 4px 0;
+    }
+
+    /* リンク：通常サイズ 14.222px */
+    .links a {
+      display: inline-block;
+      flex-shrink: 0;
+      font-size: 14.222px;
+      line-height: 20px;
+      text-decoration: underline;
+      text-underline-offset: 4px;
+      text-decoration-color: var(--text);
+      color: var(--text);
+      letter-spacing: 0.04em;
+      transition:
+        background    0.15s ease,
+        color         0.15s ease,
+        padding       0.15s ease,
+        font-size     0.15s ease,
+        text-decoration-color 0.15s ease;
+      padding: 0;
+      border-radius: 2px;
+      white-space: nowrap;
+    }
+
+    /* ホバー中のリンク: 18.286px、左右 padding 2px、上下 2px */
+    .links a:hover {
+      font-size: 18.286px;
+      background: var(--hover-bg);
+      color: var(--hover-text);
+      text-decoration-color: var(--hover-text);
+      padding-left: 2px;
+      padding-right: 2px;
+      padding-top: 2px;
+      padding-bottom: 4px;
+    }
+
+    /* ul にホバー中クラスを付与したとき、
+       ホバーしていないリンクを 12.8px に縮小 */
+    .links.is-hovering a:not(:hover) {
+      font-size: 12.8px;
+    }
+
+    /* =====================
+       コメント表示エリア
+    ===================== */
+    .link-comment-wrap {
+      flex: 1;
+      min-width: 0;
+      line-height: 20px;
+    }
+
+    .link-comment {
+      font-size: 12.8px;
+      line-height: 20px;
+      color: var(--comment);
+      letter-spacing: 0.02em;
+      white-space: normal;
+      word-break: break-word;
+      display: inline;
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    }
+
+    .link-comment.visible {
+      opacity: 1;
+    }
+
+    /* タイピングカーソル：6px幅の縦棒、常時点滅 */
+    .link-comment.visible::after {
+      content: '';
+      display: inline-block;
+      width: 0;
+      height: 0.85em;
+      border-left: 6px solid var(--comment);
+      vertical-align: text-bottom;
+      margin-left: 3px;
+      animation: blink 0.7s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="bg-overlay"></div>
+
+  <div class="container">
+
+    <div class="profile">
+
+      <!-- 名前 -->
+      <p class="name">SHIROIRI Goma</p>
+
+      <!-- 肩書 -->
+      <p class="title">Streamer / Learner</p>
+
+      <!-- 自己紹介文 -->
+      <p class="bio">
+        I dabble in illustration and design.<br>
+        I love making things myself,<br>
+        and my to-do list of new things is huge.
+      </p>
+
+      <!-- プロフィール詳細
+           初期: 頭文字のみ（コロンなし）、ddは左に詰まった位置
+           ホバー: ラベル展開 + コロン出現 → ddが右にスライド -->
+      <dl>
+        <div class="dl-row">
+          <dt><span class="dt-initial">F</span><span class="dt-rest">avorite</span><span class="dt-colon">:</span></dt>
+          <dd>Dogs / Sweets</dd>
+        </div>
+        <div class="dl-row">
+          <dt><span class="dt-initial">H</span><span class="dt-rest">obbies</span><span class="dt-colon">:</span></dt>
+          <dd>Reading / Note-taking</dd>
+        </div>
+        <div class="dl-row">
+          <dt><span class="dt-initial">I</span><span class="dt-rest">nto</span><span class="dt-colon">:</span></dt>
+          <dd>Humanities / Sociology</dd>
+        </div>
+        <div class="dl-row">
+          <dt><span class="dt-initial">L</span><span class="dt-rest">earning</span><span class="dt-colon">:</span></dt>
+          <dd>English / Coding</dd>
+        </div>
+      </dl>
+    </div>
+
+    <!-- リンク一覧 -->
+    <ul class="links">
+      <li>
+        <div class="link-row">
+          <!-- X.com リンク -->
+          <a href="https://x.com/SHIROIRI_Goma" target="_blank" rel="noopener noreferrer"
+             data-color="#A3BECC"
+             data-comment="/* Just my daily thoughts, feel free to follow! */">
+            X.com
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+      <li>
+        <div class="link-row">
+          <!-- Twitch リンク -->
+          <a href="https://www.twitch.tv/shiroiri_goma" target="_blank" rel="noopener noreferrer"
+             data-color="#B3A3CC"
+             data-comment="/* I stream at my own pace, mainly playing as the killer in Dead by Daylight */">
+            Twitch
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+      <li>
+        <div class="link-row">
+          <!-- Discord リンク -->
+          <a href="https://discord.gg/8YbW52qhW" target="_blank" rel="noopener noreferrer"
+             data-color="#CCA3C2"
+             data-comment="/* Everyone is welcome! Let's play together, whether I'm streaming or not! */">
+            Discord
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+      <li>
+        <div class="link-row">
+          <!-- YouTube リンク -->
+          <a href="https://www.youtube.com/@SHIROIRI_Goma" target="_blank" rel="noopener noreferrer"
+             data-color="#CCA3A3"
+             data-comment="/* I primarily post videos, but my update frequency is low */">
+            YouTube
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+      <li>
+        <div class="link-row">
+          <!-- Cosense リンク -->
+          <a href="https://scrapbox.io/Club-Hayaoki/" target="_blank" rel="noopener noreferrer"
+             data-color="#CCC3A3"
+             data-comment="/* I write about my reading notes, daily insights, and reflections */">
+            Cosense
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+      <li>
+        <div class="link-row">
+          <!-- Github リンク -->
+          <a href="https://github.com/SHIROIRI-Goma" target="_blank" rel="noopener noreferrer"
+             data-color="#AECCA3"
+             data-comment="/* Mainly records of things I've made, coding, and English learning */">
+            Github
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+      <li>
+        <div class="link-row">
+          <!-- Sizu.me リンク -->
+          <a href="https://sizu.me/shiroiri_goma" target="_blank" rel="noopener noreferrer"
+             data-color="#A3CCB9"
+             data-comment="/* I post content a bit too long for a tweet, like movie or book recommendations */">
+            Sizu.me
+          </a>
+          <span class="link-comment-wrap"><span class="link-comment" aria-hidden="true"></span></span>
+        </div>
+      </li>
+    </ul>
+
+  </div>
+
+  <script>
+    // =====================
+    // BGオーバーレイ
+    // - 展開: カーソル中心から素早く広がる
+    // - 離脱後 40ms → 1.6s でフェードアウト
+    // - 別リンクへ移動: 即座にリセット後、新色を展開
+    // =====================
+    const overlay  = document.getElementById('bg-overlay');
+    let hideTimer  = null;
+    let isHovering = false;
+
+    function showOverlay(color, x, y) {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+
+      if (isHovering) {
+        overlay.style.transition = 'none';
+        overlay.style.opacity    = '0';
+        overlay.style.width      = '0';
+        overlay.style.height     = '0';
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            overlay.style.transition = '';
+            overlay.style.left       = x + 'px';
+            overlay.style.top        = y + 'px';
+            overlay.style.background = color;
+            /* 展開時：境界線あり */
+            overlay.style.boxShadow  = '0 0 0 1px #111111';
+            overlay.classList.add('active');
+          });
+        });
+      } else {
+        overlay.style.left       = x + 'px';
+        overlay.style.top        = y + 'px';
+        overlay.style.background = color;
+        /* 展開時：境界線あり */
+        overlay.style.boxShadow  = '0 0 0 1px #111111';
+        overlay.classList.add('active');
+      }
+
+      isHovering = true;
+    }
+
+    function hideOverlay() {
+      isHovering = false;
+      /* 収束開始前に境界線を消す */
+      overlay.style.boxShadow = 'none';
+      hideTimer = setTimeout(() => {
+        overlay.classList.remove('active');
+        hideTimer = null;
+      }, 40);
+    }
+
+    // =====================
+    // タイピングアニメーション
+    // =====================
+    const typingTimers = new Map();
+
+    function typeText(el, text, speed = 26) {
+      if (typingTimers.has(el)) {
+        clearInterval(typingTimers.get(el));
+        typingTimers.delete(el);
+      }
+      el.textContent = '';
+      el.classList.add('visible');
+
+      let i = 0;
+      const timer = setInterval(() => {
+        if (i < text.length) {
+          el.textContent += text[i++];
+        } else {
+          clearInterval(timer);
+          typingTimers.delete(el);
+        }
+      }, speed);
+
+      typingTimers.set(el, timer);
+    }
+
+    function clearText(el) {
+      if (typingTimers.has(el)) {
+        clearInterval(typingTimers.get(el));
+        typingTimers.delete(el);
+      }
+      el.textContent = '';
+      el.classList.remove('visible');
+    }
+
+    // =====================
+    // dl-row ホバー：一瞬でも触れたら必ず完全展開し、
+    // ホバー解除から 2.4s 後に閉じる
+    // =====================
+    const dlRows = document.querySelectorAll('.dl-row');
+    const dlTimers = new Map();
+
+    dlRows.forEach(row => {
+      row.addEventListener('mouseenter', () => {
+        // 閉じるタイマーがあればキャンセル（再ホバー時）
+        if (dlTimers.has(row)) {
+          clearTimeout(dlTimers.get(row));
+          dlTimers.delete(row);
+        }
+        // 展開クラスを付与（transition delay: 0s で即展開）
+        row.classList.add('expanded');
+      });
+
+      row.addEventListener('mouseleave', () => {
+        // 2.4s 後に閉じる（CSS transition delay と合わせる）
+        const t = setTimeout(() => {
+          row.classList.remove('expanded');
+          dlTimers.delete(row);
+        }, 1200);
+        dlTimers.set(row, t);
+      });
+    });
+
+    // =====================
+    // リンクホバー：サイズ変化 + BG + コメント
+    // =====================
+    const linksList = document.querySelector('.links');
+
+    document.querySelectorAll('.links a').forEach(link => {
+      const row       = link.closest('.link-row');
+      const commentEl = row.querySelector('.link-comment');
+      const color     = link.dataset.color;
+      const comment   = link.dataset.comment;
+
+      link.addEventListener('mouseenter', e => {
+        // ulに is-hovering を付与 → 他のリンクが 12.8px に縮む
+        linksList.classList.add('is-hovering');
+        showOverlay(color, e.clientX, e.clientY);
+        typeText(commentEl, comment);
+      });
+
+      link.addEventListener('mousemove', e => {
+        overlay.style.left = e.clientX + 'px';
+        overlay.style.top  = e.clientY + 'px';
+      });
+
+      link.addEventListener('mouseleave', () => {
+        linksList.classList.remove('is-hovering');
+        hideOverlay();
+        clearText(commentEl);
+      });
+    });
+  </script>
+
+</body>
+</html>
